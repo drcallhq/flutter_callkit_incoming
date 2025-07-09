@@ -169,11 +169,12 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
                 return
             }
             if(self.isFromPushKit){
-                self.connectedCall(self.data!)
+                self.connectedCall(self.data!, 0)
             }else{
                 if let getArgs = args as? [String: Any] {
                     self.data = Data(args: getArgs)
-                    self.connectedCall(self.data!)
+                    let isOutgoing: Int = getArgs["isOutgoing"] as? Int ?? 1
+                    self.connectedCall(self.data!, isOutgoing)
                 }
             }
             result("OK")
@@ -314,7 +315,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         self.callManager.endCall(call: call!)
     }
     
-    @objc public func connectedCall(_ data: Data) {
+    @objc public func connectedCall(_ data: Data, _ isOutGoing: Int) {
         var call: Call? = nil
         if(self.isFromPushKit){
             call = Call(uuid: UUID(uuidString: self.data!.uuid)!, data: data)
@@ -322,6 +323,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         }else {
             call = Call(uuid: UUID(uuidString: data.uuid)!, data: data)
         }
+        call?.isOutGoing = isOutGoing == 1
         self.callManager.connectedCall(call: call!)
     }
     
