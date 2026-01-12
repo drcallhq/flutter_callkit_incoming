@@ -593,7 +593,6 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         }
 
         guard call.data.extra["call_origin"] as? String == "incomingPush" else {
-            callkitLog.error("❌ ACCEPT ignorado — origem inválida")
             action.fail()
             return
         }
