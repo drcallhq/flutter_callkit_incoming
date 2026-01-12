@@ -35,7 +35,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     
     private var outgoingCall : Call?
     private var answerCall : Call?
-    private var isProgrammaticAnswer: Bool = false
+    internal var isProgrammaticAnswer: Bool = false
     
     private var data: Data?
     private var isFromPushKit: Bool = false
