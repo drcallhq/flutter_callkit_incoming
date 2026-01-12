@@ -68,6 +68,7 @@ class CallManager: NSObject {
         callItem?.connectedCall(completion: nil)
         
         if (!call.isOutGoing) {
+            SwiftFlutterCallkitIncomingPlugin.sharedInstance.isProgrammaticAnswer = true
             let answerAction = CXAnswerCallAction(call: call.uuid)
             let transaction = CXTransaction(action: answerAction)
 
