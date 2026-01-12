@@ -35,7 +35,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     
     private var outgoingCall : Call?
     private var answerCall : Call?
-    internal var isProgrammaticAnswer: Bool = false
+    //internal var isProgrammaticAnswer: Bool = false
     
     private var data: Data?
     private var isFromPushKit: Bool = false
@@ -284,10 +284,10 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         
         let uuid = UUID(uuidString: data.uuid)
         
-        self.configureAudioSession()
+        //self.configureAudioSession()
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
-                self.configureAudioSession()
+                //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
                 self.callManager.addCall(call)
@@ -325,7 +325,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
-                self.configureAudioSession()
+                //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
                 self.callManager.addCall(call)
@@ -591,23 +591,38 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             action.fail()
             return
         }
+
+        guard call.data.extra["call_origin"] as? String == "incomingPush" else {
+            callkitLog.error("❌ ACCEPT ignorado — origem inválida")
+            action.fail()
+            return
+        }
+
+        self.callManager.userDidExplicitlyAccept = true
+
         defer {
             action.fulfill()
         }
-        if isProgrammaticAnswer {
-            isProgrammaticAnswer = false
-            return
-        }
+
+        // if isProgrammaticAnswer {
+        //     isProgrammaticAnswer = false
+        //     return
+        // }
+
         self.configureAudioSession()
+
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(1200)) {
             self.configureAudioSession()
         }
         call.hasConnectDidChange = { [weak self] in
             self?.sharedProvider?.reportOutgoingCall(with: call.uuid, connectedAt: call.connectedData)
         }
+
         self.data?.isAccepted = true
         self.answerCall = call
+
         sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_ACCEPT, self.data?.toJSON())
+
         if let appDelegate = UIApplication.shared.delegate as? CallkitIncomingAppDelegate {
             appDelegate.onAccept(call, action)
         }

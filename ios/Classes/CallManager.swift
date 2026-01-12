@@ -14,6 +14,7 @@ class CallManager: NSObject {
     private let callController = CXCallController()
     private var sharedProvider: CXProvider? = nil
     private(set) var calls = [Call]()
+    var userDidExplicitlyAccept: Bool = false
     
     
     func setSharedProvider(_ sharedProvider: CXProvider) {
@@ -67,19 +68,19 @@ class CallManager: NSObject {
         let callItem = self.callWithUUID(uuid: call.uuid)
         callItem?.connectedCall(completion: nil)
         
-        if (!call.isOutGoing) {
-            SwiftFlutterCallkitIncomingPlugin.sharedInstance.isProgrammaticAnswer = true
-            let answerAction = CXAnswerCallAction(call: call.uuid)
-            let transaction = CXTransaction(action: answerAction)
+        // if (!call.isOutGoing) {
+        //     SwiftFlutterCallkitIncomingPlugin.sharedInstance.isProgrammaticAnswer = true
+        //     let answerAction = CXAnswerCallAction(call: call.uuid)
+        //     let transaction = CXTransaction(action: answerAction)
 
-            callController.request(transaction) { error in
-                if let error = error {
-                    print("Error answering call: \(error.localizedDescription)")
-                } else {
-                    // Call successfully answered
-                }
-            }
-        }
+        //     callController.request(transaction) { error in
+        //         if let error = error {
+        //             print("Error answering call: \(error.localizedDescription)")
+        //         } else {
+        //             // Call successfully answered
+        //         }
+        //     }
+        // }
     }
     
     func endCallAlls() {
