@@ -45,7 +45,8 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     // Properties for detecting auto-answer from system
     private var callReportedAt: Date? = nil
     private var appStateWhenCallReported: UIApplication.State? = nil
-    private let minimumTimeBeforeAnswer: TimeInterval = 1.5 // seconds
+    private var callReportConfirmed: Bool = false // Set to true when reportNewIncomingCall callback executes
+    private let minimumTimeBeforeAnswer: TimeInterval = 4.0 // seconds - increased to cover auto-answers at 2-3s
 
     
     private func sendEvent(_ event: String, _ body: [String : Any?]?) {
@@ -293,10 +294,14 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         // The CXAnswerCallAction can be triggered before the completion handler executes
         self.callReportedAt = Date()
         self.appStateWhenCallReported = UIApplication.shared.applicationState
+        self.callReportConfirmed = false // Reset flag before reporting
         
         //self.configureAudioSession()
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
+                // Mark call as confirmed by CallKit
+                self.callReportConfirmed = true
+                
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
@@ -304,9 +309,10 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
                 self.sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_INCOMING, data.toJSON())
                 self.endCallNotExist(data)
             } else {
-                // Clear timestamp if call report failed
+                // Clear state if call report failed
                 self.callReportedAt = nil
                 self.appStateWhenCallReported = nil
+                self.callReportConfirmed = false
             }
         }
     }
@@ -341,9 +347,13 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         // The CXAnswerCallAction can be triggered before the completion handler executes
         self.callReportedAt = Date()
         self.appStateWhenCallReported = UIApplication.shared.applicationState
+        self.callReportConfirmed = false // Reset flag before reporting
         
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
+                // Mark call as confirmed by CallKit
+                self.callReportConfirmed = true
+                
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
@@ -351,9 +361,10 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
                 self.sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_INCOMING, data.toJSON())
                 self.endCallNotExist(data)
             } else {
-                // Clear timestamp if call report failed
+                // Clear state if call report failed
                 self.callReportedAt = nil
                 self.appStateWhenCallReported = nil
+                self.callReportConfirmed = false
             }
             completion()
         }
@@ -620,14 +631,21 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             return
         }
         
-        // Safety check: if callReportedAt is nil, the reportNewIncomingCall callback hasn't executed yet
-        // This is a race condition - reject the action as it's likely an auto-answer from the system
+        // Safety check 1: if callReportedAt is nil, reject immediately
         guard let reportedAt = callReportedAt else {
             action.fail()
             return
         }
         
-        // Detect and reject spurious auto-answer from system
+        // Safety check 2: if call report callback hasn't confirmed yet, reject
+        // This ensures the CallKit has fully processed the incoming call
+        guard callReportConfirmed else {
+            action.fail()
+            return
+        }
+        
+        // Safety check 3: Detect and reject spurious auto-answer from system
+        // Auto-answers typically occur within 2-4 seconds when app is in background
         let timeSinceReport = Date().timeIntervalSince(reportedAt)
         let wasInBackground = appStateWhenCallReported != .active
         
@@ -684,6 +702,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             // Clean up temporal states
             self.callReportedAt = nil
             self.appStateWhenCallReported = nil
+            self.callReportConfirmed = false
             action.fail()
             return
         }
@@ -710,6 +729,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         // Clean up temporal states after call ends
         self.callReportedAt = nil
         self.appStateWhenCallReported = nil
+        self.callReportConfirmed = false
     }
     
     
