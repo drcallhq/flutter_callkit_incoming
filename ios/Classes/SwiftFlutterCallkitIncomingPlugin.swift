@@ -3,6 +3,9 @@ import UIKit
 import CallKit
 import AVFoundation
 import UserNotifications
+import os.log
+
+private let callkitLog = OSLog(subsystem: "com.hiennv.flutter_callkit_incoming", category: "CallKit")
 
 @available(iOS 10.0, *)
 public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProviderDelegate {
@@ -296,11 +299,15 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         self.appStateWhenCallReported = UIApplication.shared.applicationState
         self.callReportConfirmed = false // Reset flag before reporting
         
+        os_log("📱 [Plugin v2] showCallkitIncoming - timestamp registered, appState: %d, minTime: %f", log: callkitLog, type: .error, self.appStateWhenCallReported?.rawValue ?? -1, self.minimumTimeBeforeAnswer)
+        
         //self.configureAudioSession()
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
                 // Mark call as confirmed by CallKit
                 self.callReportConfirmed = true
+                
+                os_log("📱 [Plugin v2] reportNewIncomingCall callback - confirmed=true", log: callkitLog, type: .error)
                 
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
@@ -313,6 +320,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
                 self.callReportedAt = nil
                 self.appStateWhenCallReported = nil
                 self.callReportConfirmed = false
+                os_log("📱 [Plugin v2] reportNewIncomingCall FAILED", log: callkitLog, type: .error)
             }
         }
     }
@@ -349,10 +357,14 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         self.appStateWhenCallReported = UIApplication.shared.applicationState
         self.callReportConfirmed = false // Reset flag before reporting
         
+        os_log("📱 [Plugin v2] showCallkitIncoming (completion) - timestamp registered, appState: %d, minTime: %f", log: callkitLog, type: .error, self.appStateWhenCallReported?.rawValue ?? -1, self.minimumTimeBeforeAnswer)
+        
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
                 // Mark call as confirmed by CallKit
                 self.callReportConfirmed = true
+                
+                os_log("📱 [Plugin v2] reportNewIncomingCall (completion) callback - confirmed=true", log: callkitLog, type: .error)
                 
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
@@ -365,6 +377,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
                 self.callReportedAt = nil
                 self.appStateWhenCallReported = nil
                 self.callReportConfirmed = false
+                os_log("📱 [Plugin v2] reportNewIncomingCall (completion) FAILED", log: callkitLog, type: .error)
             }
             completion()
         }
@@ -621,18 +634,23 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     }
     
     public func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        os_log("📱 [Plugin v2] CXAnswerCallAction TRIGGERED", log: callkitLog, type: .error)
+        
         guard let call = self.callManager.callWithUUID(uuid: action.callUUID) else{
+            os_log("📱 [Plugin v2] REJECTED: call not found", log: callkitLog, type: .error)
             action.fail()
             return
         }
 
         guard call.data.extra["call_origin"] as? String == "incomingPush" else {
+            os_log("📱 [Plugin v2] REJECTED: call_origin not incomingPush", log: callkitLog, type: .error)
             action.fail()
             return
         }
         
         // Safety check 1: if callReportedAt is nil, reject immediately
         guard let reportedAt = callReportedAt else {
+            os_log("📱 [Plugin v2] REJECTED: callReportedAt is nil", log: callkitLog, type: .error)
             action.fail()
             return
         }
@@ -640,6 +658,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         // Safety check 2: if call report callback hasn't confirmed yet, reject
         // This ensures the CallKit has fully processed the incoming call
         guard callReportConfirmed else {
+            os_log("📱 [Plugin v2] REJECTED: callReportConfirmed is false", log: callkitLog, type: .error)
             action.fail()
             return
         }
@@ -649,11 +668,16 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         let timeSinceReport = Date().timeIntervalSince(reportedAt)
         let wasInBackground = appStateWhenCallReported != .active
         
+        os_log("📱 [Plugin v2] timeSinceReport: %f, wasInBackground: %d, minTime: %f", log: callkitLog, type: .error, timeSinceReport, wasInBackground ? 1 : 0, minimumTimeBeforeAnswer)
+        
         if wasInBackground && timeSinceReport < minimumTimeBeforeAnswer {
             // Auto-answer detected - reject the action
+            os_log("📱 [Plugin v2] REJECTED: auto-answer detected (time < minTime)", log: callkitLog, type: .error)
             action.fail()
             return
         }
+        
+        os_log("📱 [Plugin v2] ACCEPTED: all checks passed, sending ACTION_CALL_ACCEPT", log: callkitLog, type: .error)
 
         self.callManager.userDidExplicitlyAccept = true
         
