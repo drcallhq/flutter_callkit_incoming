@@ -56,12 +56,31 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         if silenceEvents {
             print(event, " silenced")
             return
-        } else {
-            streamHandlers.reap().forEach { handler in
-                handler?.send(event, body ?? [:])
-            }
         }
         
+        // CRITICAL: Last line of defense - block ACTION_CALL_ACCEPT if safety checks fail
+        // This protects against cached CXProvider instances or delegates that bypass our handler checks
+        if event == SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_ACCEPT {
+            guard let reportedAt = callReportedAt else {
+                os_log("📱 [Plugin v2] sendEvent BLOCKED: ACTION_CALL_ACCEPT - callReportedAt is nil", log: callkitLog, type: .error)
+                return
+            }
+            guard callReportConfirmed else {
+                os_log("📱 [Plugin v2] sendEvent BLOCKED: ACTION_CALL_ACCEPT - callReportConfirmed is false", log: callkitLog, type: .error)
+                return
+            }
+            let timeSinceReport = Date().timeIntervalSince(reportedAt)
+            let wasInBackground = appStateWhenCallReported != .active
+            if wasInBackground && timeSinceReport < minimumTimeBeforeAnswer {
+                os_log("📱 [Plugin v2] sendEvent BLOCKED: ACTION_CALL_ACCEPT - auto-answer detected (time: %f < %f)", log: callkitLog, type: .error, timeSinceReport, minimumTimeBeforeAnswer)
+                return
+            }
+            os_log("📱 [Plugin v2] sendEvent ALLOWED: ACTION_CALL_ACCEPT (time: %f)", log: callkitLog, type: .error, timeSinceReport)
+        }
+        
+        streamHandlers.reap().forEach { handler in
+            handler?.send(event, body ?? [:])
+        }
     }
     
     @objc public func sendEventCustom(_ event: String, body: NSDictionary?) {
@@ -511,10 +530,18 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     }
     
     func initCallkitProvider(_ data: Data) {
-        if(self.sharedProvider == nil){
-            self.sharedProvider = CXProvider(configuration: createConfiguration(data))
-            self.sharedProvider?.setDelegate(self, queue: nil)
+        // CRITICAL: Always invalidate and recreate the provider when app wakes from background
+        // This prevents the iOS from using a cached CXProvider with an old/stale delegate
+        // that could process CXAnswerCallAction without our safety checks
+        if let existingProvider = self.sharedProvider {
+            os_log("📱 [Plugin v2] Invalidating existing CXProvider", log: callkitLog, type: .error)
+            existingProvider.invalidate()
+            self.sharedProvider = nil
         }
+        
+        os_log("📱 [Plugin v2] Creating new CXProvider and setting delegate", log: callkitLog, type: .error)
+        self.sharedProvider = CXProvider(configuration: createConfiguration(data))
+        self.sharedProvider?.setDelegate(self, queue: nil)
         self.callManager.setSharedProvider(self.sharedProvider!)
     }
     
