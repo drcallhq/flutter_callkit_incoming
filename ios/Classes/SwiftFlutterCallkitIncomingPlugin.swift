@@ -84,6 +84,26 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     }
     
     @objc public func sendEventCustom(_ event: String, body: NSDictionary?) {
+        os_log("📱 [Plugin v2] sendEventCustom called with event: %{public}@", log: callkitLog, type: .error, event)
+        
+        // Apply same safety checks as sendEvent for ACTION_CALL_ACCEPT
+        if event == SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_ACCEPT {
+            guard let reportedAt = callReportedAt else {
+                os_log("📱 [Plugin v2] sendEventCustom BLOCKED: ACTION_CALL_ACCEPT - callReportedAt is nil", log: callkitLog, type: .error)
+                return
+            }
+            guard callReportConfirmed else {
+                os_log("📱 [Plugin v2] sendEventCustom BLOCKED: ACTION_CALL_ACCEPT - callReportConfirmed is false", log: callkitLog, type: .error)
+                return
+            }
+            let timeSinceReport = Date().timeIntervalSince(reportedAt)
+            let wasInBackground = appStateWhenCallReported != .active
+            if wasInBackground && timeSinceReport < minimumTimeBeforeAnswer {
+                os_log("📱 [Plugin v2] sendEventCustom BLOCKED: ACTION_CALL_ACCEPT - auto-answer detected", log: callkitLog, type: .error)
+                return
+            }
+        }
+        
         streamHandlers.reap().forEach { handler in
             handler?.send(event, body ?? [:])
         }
@@ -941,6 +961,9 @@ class EventCallbackHandler: NSObject, FlutterStreamHandler {
     private var eventSink: FlutterEventSink?
     
     public func send(_ event: String, _ body: Any) {
+        // Log ALL events being sent to Flutter for debugging
+        os_log("📱 [EventHandler] Sending event to Flutter: %{public}@", log: callkitLog, type: .error, event)
+        
         let data: [String : Any] = [
             "event": event,
             "body": body
@@ -949,11 +972,13 @@ class EventCallbackHandler: NSObject, FlutterStreamHandler {
     }
     
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        os_log("📱 [EventHandler] onListen - EventSink connected", log: callkitLog, type: .error)
         self.eventSink = events
         return nil
     }
     
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        os_log("📱 [EventHandler] onCancel - EventSink disconnected", log: callkitLog, type: .error)
         self.eventSink = nil
         return nil
     }
