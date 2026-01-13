@@ -41,6 +41,11 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     private var isFromPushKit: Bool = false
     private var silenceEvents: Bool = false
     private let devicePushTokenVoIP = "DevicePushTokenVoIP"
+    
+    // Properties for detecting auto-answer from system
+    private var callReportedAt: Date? = nil
+    private var appStateWhenCallReported: UIApplication.State? = nil
+    private let minimumTimeBeforeAnswer: TimeInterval = 1.5 // seconds
 
     
     private func sendEvent(_ event: String, _ body: [String : Any?]?) {
@@ -284,9 +289,17 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         
         let uuid = UUID(uuidString: data.uuid)
         
+        // Record app state before reporting call for auto-answer detection
+        let currentAppState = UIApplication.shared.applicationState
+        
         //self.configureAudioSession()
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
+                // Record timestamp and app state for auto-answer detection
+                self.callReportedAt = Date()
+                self.appStateWhenCallReported = currentAppState
+                print("[CallKit] Call reported at: \(self.callReportedAt!), app state: \(currentAppState.rawValue)")
+                
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
@@ -323,8 +336,16 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         
         let uuid = UUID(uuidString: data.uuid)
         
+        // Record app state before reporting call for auto-answer detection
+        let currentAppState = UIApplication.shared.applicationState
+        
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
+                // Record timestamp and app state for auto-answer detection
+                self.callReportedAt = Date()
+                self.appStateWhenCallReported = currentAppState
+                print("[CallKit] Call reported at: \(self.callReportedAt!), app state: \(currentAppState.rawValue)")
+                
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
@@ -596,18 +617,23 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             action.fail()
             return
         }
-
-        self.callManager.userDidExplicitlyAccept = true
-
-        defer {
-            action.fulfill()
+        
+        // Detect and reject spurious auto-answer from system
+        let timeSinceReport = Date().timeIntervalSince(callReportedAt ?? Date.distantPast)
+        let wasInBackground = appStateWhenCallReported != .active
+        
+        print("[CallKit] CXAnswerCallAction - timeSinceReport: \(timeSinceReport)s, wasInBackground: \(wasInBackground)")
+        
+        if wasInBackground && timeSinceReport < minimumTimeBeforeAnswer {
+            // Auto-answer detected - reject the action
+            print("[CallKit] Auto-answer detected and rejected. Time since report: \(timeSinceReport)s < \(minimumTimeBeforeAnswer)s")
+            action.fail()
+            return
         }
 
-        // if isProgrammaticAnswer {
-        //     isProgrammaticAnswer = false
-        //     return
-        // }
-
+        self.callManager.userDidExplicitlyAccept = true
+        
+        // Valid user action - proceed with normal flow
         self.configureAudioSession()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(1200)) {
@@ -625,6 +651,8 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         if let appDelegate = UIApplication.shared.delegate as? CallkitIncomingAppDelegate {
             appDelegate.onAccept(call, action)
         }
+        
+        action.fulfill()
     }
     
 //    private func checkUnlockedAndFulfill(action: CXAnswerCallAction, counter: Int) {
@@ -647,6 +675,9 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             } else {
                 sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_ENDED, self.data?.toJSON())
             }
+            // Clean up temporal states
+            self.callReportedAt = nil
+            self.appStateWhenCallReported = nil
             action.fail()
             return
         }
@@ -669,6 +700,10 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
                 appDelegate.onEnd(call, action)
             }
         }
+        
+        // Clean up temporal states after call ends
+        self.callReportedAt = nil
+        self.appStateWhenCallReported = nil
     }
     
     
@@ -726,7 +761,13 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     }
     
     public func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-
+        // Guard: Only process audio activation if there's a valid accepted call
+        guard self.answerCall != nil || self.outgoingCall != nil else {
+            // Audio activated without a valid accepted call - ignore to prevent premature audio setup
+            print("[CallKit] didActivateAudioSession called but no valid answerCall or outgoingCall - ignoring")
+            return
+        }
+        
         if let appDelegate = UIApplication.shared.delegate as? CallkitIncomingAppDelegate {
             appDelegate.didActivateAudioSession(audioSession)
         }
