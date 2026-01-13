@@ -30,7 +30,9 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     
     @objc public private(set) static var sharedInstance: SwiftFlutterCallkitIncomingPlugin!
     
-    private var streamHandlers: WeakArray<EventCallbackHandler> = WeakArray([])
+    // IMPORTANT: Use strong references to prevent handlers from being deallocated
+    // when app is launched by VoIP push in background
+    private var streamHandlers: [EventCallbackHandler] = []
     
     private var callManager: CallManager
     
@@ -53,8 +55,11 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
 
     
     private func sendEvent(_ event: String, _ body: [String : Any?]?) {
+        // LOG ALL sendEvent calls to trace the source
+        os_log("📱 [Plugin v2] sendEvent CALLED with event: %{public}@, handlers count: %d", log: callkitLog, type: .error, event, streamHandlers.count)
+        
         if silenceEvents {
-            print(event, " silenced")
+            os_log("📱 [Plugin v2] sendEvent SILENCED: %{public}@", log: callkitLog, type: .error, event)
             return
         }
         
@@ -78,8 +83,9 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             os_log("📱 [Plugin v2] sendEvent ALLOWED: ACTION_CALL_ACCEPT (time: %f)", log: callkitLog, type: .error, timeSinceReport)
         }
         
-        streamHandlers.reap().forEach { handler in
-            handler?.send(event, body ?? [:])
+        os_log("📱 [Plugin v2] sendEvent - handlers count: %d", log: callkitLog, type: .error, streamHandlers.count)
+        streamHandlers.forEach { handler in
+            handler.send(event, body ?? [:])
         }
     }
     
@@ -104,8 +110,8 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             }
         }
         
-        streamHandlers.reap().forEach { handler in
-            handler?.send(event, body ?? [:])
+        streamHandlers.forEach { handler in
+            handler.send(event, body ?? [:])
         }
     }
     
@@ -257,6 +263,13 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             
             self.silenceEvents = silence
             result(true)
+            break;
+        case "logEvent":
+            if let args = call.arguments as? [String: Any],
+               let message = args["message"] as? String {
+                os_log("📱 [Flutter] %{public}@", log: callkitLog, type: .error, message)
+            }
+            result(nil)
             break;
         case "requestNotificationPermission":
             guard let args = call.arguments else {
@@ -563,6 +576,10 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         self.sharedProvider = CXProvider(configuration: createConfiguration(data))
         self.sharedProvider?.setDelegate(self, queue: nil)
         self.callManager.setSharedProvider(self.sharedProvider!)
+        os_log("📱 [Plugin v2] New CXProvider created: %{public}@, delegate self: %{public}@", 
+               log: callkitLog, type: .error,
+               String(describing: self.sharedProvider.map { ObjectIdentifier($0) }),
+               String(describing: ObjectIdentifier(self)))
     }
     
     func createConfiguration(_ data: Data) -> CXProviderConfiguration {
@@ -681,7 +698,11 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     }
     
     public func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        os_log("📱 [Plugin v2] CXAnswerCallAction TRIGGERED", log: callkitLog, type: .error)
+        os_log("📱 [Plugin v2] CXAnswerCallAction TRIGGERED - provider: %{public}@, sharedProvider: %{public}@, action UUID: %{public}@", 
+               log: callkitLog, type: .error, 
+               String(describing: ObjectIdentifier(provider)), 
+               String(describing: self.sharedProvider.map { ObjectIdentifier($0) }),
+               action.callUUID.uuidString)
         
         guard let call = self.callManager.callWithUUID(uuid: action.callUUID) else{
             os_log("📱 [Plugin v2] REJECTED: call not found", log: callkitLog, type: .error)

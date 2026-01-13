@@ -95,7 +95,8 @@ class FlutterCallkitIncoming {
   /// On iOS, using Callkit(update a history into the Phone app).
   /// On Android, Nothing(only callback event listener).
   static Future setCallConnected(String id, bool isOutgoing) async {
-    await _channel.invokeMethod("callConnected", {'id': id, 'isOutgoing': isOutgoing});
+    await _channel
+        .invokeMethod("callConnected", {'id': id, 'isOutgoing': isOutgoing});
   }
 
   /// End all calls.
@@ -143,6 +144,12 @@ class FlutterCallkitIncoming {
   /// Only Android: canUseFullScreenIntent permission for ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT
   static Future canUseFullScreenIntent() async {
     return await _channel.invokeMethod("canUseFullScreenIntent");
+  }
+
+  /// Log a message to iOS system log (visible in `log collect`)
+  /// Only iOS: Logs to os_log for debugging in release builds
+  static Future<void> logToSystem(String message) async {
+    await _channel.invokeMethod("logEvent", {'message': message});
   }
 
   static CallEvent? _receiveCallEvent(dynamic data) {
