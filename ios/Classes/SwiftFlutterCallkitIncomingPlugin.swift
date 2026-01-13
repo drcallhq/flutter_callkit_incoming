@@ -289,23 +289,24 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         
         let uuid = UUID(uuidString: data.uuid)
         
-        // Record app state before reporting call for auto-answer detection
-        let currentAppState = UIApplication.shared.applicationState
+        // Record timestamp and app state BEFORE reporting call to avoid race condition
+        // The CXAnswerCallAction can be triggered before the completion handler executes
+        self.callReportedAt = Date()
+        self.appStateWhenCallReported = UIApplication.shared.applicationState
         
         //self.configureAudioSession()
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
-                // Record timestamp and app state for auto-answer detection
-                self.callReportedAt = Date()
-                self.appStateWhenCallReported = currentAppState
-                print("[CallKit] Call reported at: \(self.callReportedAt!), app state: \(currentAppState.rawValue)")
-                
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
                 self.callManager.addCall(call)
                 self.sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_INCOMING, data.toJSON())
                 self.endCallNotExist(data)
+            } else {
+                // Clear timestamp if call report failed
+                self.callReportedAt = nil
+                self.appStateWhenCallReported = nil
             }
         }
     }
@@ -336,22 +337,23 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         
         let uuid = UUID(uuidString: data.uuid)
         
-        // Record app state before reporting call for auto-answer detection
-        let currentAppState = UIApplication.shared.applicationState
+        // Record timestamp and app state BEFORE reporting call to avoid race condition
+        // The CXAnswerCallAction can be triggered before the completion handler executes
+        self.callReportedAt = Date()
+        self.appStateWhenCallReported = UIApplication.shared.applicationState
         
         self.sharedProvider?.reportNewIncomingCall(with: uuid!, update: callUpdate) { error in
             if(error == nil) {
-                // Record timestamp and app state for auto-answer detection
-                self.callReportedAt = Date()
-                self.appStateWhenCallReported = currentAppState
-                print("[CallKit] Call reported at: \(self.callReportedAt!), app state: \(currentAppState.rawValue)")
-                
                 //self.configureAudioSession()
                 let call = Call(uuid: uuid!, data: data)
                 call.handle = data.handle
                 self.callManager.addCall(call)
                 self.sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_INCOMING, data.toJSON())
                 self.endCallNotExist(data)
+            } else {
+                // Clear timestamp if call report failed
+                self.callReportedAt = nil
+                self.appStateWhenCallReported = nil
             }
             completion()
         }
@@ -618,15 +620,19 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             return
         }
         
-        // Detect and reject spurious auto-answer from system
-        let timeSinceReport = Date().timeIntervalSince(callReportedAt ?? Date.distantPast)
-        let wasInBackground = appStateWhenCallReported != .active
+        // Safety check: if callReportedAt is nil, the reportNewIncomingCall callback hasn't executed yet
+        // This is a race condition - reject the action as it's likely an auto-answer from the system
+        guard let reportedAt = callReportedAt else {
+            action.fail()
+            return
+        }
         
-        print("[CallKit] CXAnswerCallAction - timeSinceReport: \(timeSinceReport)s, wasInBackground: \(wasInBackground)")
+        // Detect and reject spurious auto-answer from system
+        let timeSinceReport = Date().timeIntervalSince(reportedAt)
+        let wasInBackground = appStateWhenCallReported != .active
         
         if wasInBackground && timeSinceReport < minimumTimeBeforeAnswer {
             // Auto-answer detected - reject the action
-            print("[CallKit] Auto-answer detected and rejected. Time since report: \(timeSinceReport)s < \(minimumTimeBeforeAnswer)s")
             action.fail()
             return
         }
