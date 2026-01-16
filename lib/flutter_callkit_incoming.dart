@@ -118,6 +118,13 @@ class FlutterCallkitIncoming {
     return await _channel.invokeMethod("getDevicePushTokenVoIP");
   }
 
+  /// Get device push token APNs (for remote notifications).
+  /// On iOS: return deviceToken for APNs.
+  /// On Android: return Empty
+  static Future getDevicePushTokenApn() async {
+    return await _channel.invokeMethod("getDevicePushTokenApn");
+  }
+
   /// Silence CallKit events
   static Future silenceEvents() async {
     return await _channel.invokeMethod("silenceEvents", true);

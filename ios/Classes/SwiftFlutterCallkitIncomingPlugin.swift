@@ -11,6 +11,7 @@ private let callkitLog = OSLog(subsystem: "com.hiennv.flutter_callkit_incoming",
 public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProviderDelegate {
     
     static let ACTION_DID_UPDATE_DEVICE_PUSH_TOKEN_VOIP = "com.hiennv.flutter_callkit_incoming.DID_UPDATE_DEVICE_PUSH_TOKEN_VOIP"
+    static let ACTION_DID_UPDATE_DEVICE_PUSH_TOKEN_APN = "com.hiennv.flutter_callkit_incoming.DID_UPDATE_DEVICE_PUSH_TOKEN_APN"
     
     static let ACTION_CALL_INCOMING = "com.hiennv.flutter_callkit_incoming.ACTION_CALL_INCOMING"
     static let ACTION_CALL_START = "com.hiennv.flutter_callkit_incoming.ACTION_CALL_START"
@@ -46,6 +47,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     private var isFromPushKit: Bool = false
     private var silenceEvents: Bool = false
     private let devicePushTokenVoIP = "DevicePushTokenVoIP"
+    private let devicePushTokenApn = "DevicePushTokenApn"
     
     // Properties for detecting auto-answer from system
     private var callReportedAt: Date? = nil
@@ -255,6 +257,9 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         case "getDevicePushTokenVoIP":
             result(self.getDevicePushTokenVoIP())
             break;
+        case "getDevicePushTokenApn":
+            result(self.getDevicePushTokenApn())
+            break;
         case "silenceEvents":
             guard let silence = call.arguments as? Bool else {
                 result(true)
@@ -308,6 +313,15 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     
     @objc public func getDevicePushTokenVoIP() -> String {
         return UserDefaults.standard.string(forKey: devicePushTokenVoIP) ?? ""
+    }
+    
+    @objc public func setDevicePushTokenApn(_ deviceToken: String) {
+        UserDefaults.standard.set(deviceToken, forKey: devicePushTokenApn)
+        self.sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_DID_UPDATE_DEVICE_PUSH_TOKEN_APN, ["deviceTokenApn":deviceToken])
+    }
+    
+    @objc public func getDevicePushTokenApn() -> String {
+        return UserDefaults.standard.string(forKey: devicePushTokenApn) ?? ""
     }
     
     @objc public func getAcceptedCall() -> Data? {

@@ -10,6 +10,7 @@ class CallEvent {
 
 enum Event {
   actionDidUpdateDevicePushTokenVoip,
+  actionDidUpdateDevicePushTokenApn,
   actionCallIncoming,
   actionCallStart,
   actionCallAccept,
@@ -32,6 +33,8 @@ extension EventX on Event {
     switch (this) {
       case Event.actionDidUpdateDevicePushTokenVoip:
         return 'com.hiennv.flutter_callkit_incoming.DID_UPDATE_DEVICE_PUSH_TOKEN_VOIP';
+      case Event.actionDidUpdateDevicePushTokenApn:
+        return 'com.hiennv.flutter_callkit_incoming.DID_UPDATE_DEVICE_PUSH_TOKEN_APN';
       case Event.actionCallIncoming:
         return 'com.hiennv.flutter_callkit_incoming.ACTION_CALL_INCOMING';
       case Event.actionCallStart:
