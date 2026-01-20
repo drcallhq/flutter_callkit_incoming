@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.annotation.NonNull
 import com.hiennv.flutter_callkit_incoming.Utils.Companion.reapCollection
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -38,19 +39,84 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
             return ::instance.isInitialized
         }
 
+        private const val TAG = "CallkitPlugin"
+        private const val MAX_PENDING_EVENTS = 10
+
         private val methodChannels = mutableMapOf<BinaryMessenger, MethodChannel>()
         private val eventChannels = mutableMapOf<BinaryMessenger, EventChannel>()
         private val eventHandlers = mutableListOf<WeakReference<EventCallbackHandler>>()
 
+        // Lista para armazenar eventos pendentes quando não há listeners ativos
+        private val pendingEvents = mutableListOf<Pair<String, Map<String, Any?>>>()
+        private val pendingEventsLock = Any()
+
         fun sendEvent(event: String, body: Map<String, Any?>) {
-            eventHandlers.reapCollection().forEach {
-                it.get()?.send(event, body)
+            val handlers = eventHandlers.reapCollection()
+            var eventSent = false
+
+            handlers.forEach {
+                val handler = it.get()
+                if (handler != null && handler.hasListener()) {
+                    handler.send(event, body)
+                    eventSent = true
+                }
+            }
+
+            // Se não conseguiu enviar para nenhum listener ativo, enfileira o evento
+            if (!eventSent) {
+                synchronized(pendingEventsLock) {
+                    // Limita eventos pendentes para evitar memory leak
+                    if (pendingEvents.size >= MAX_PENDING_EVENTS) {
+                        pendingEvents.removeAt(0)
+                    }
+                    pendingEvents.add(Pair(event, body))
+                    Log.d(TAG, "Event queued: $event (total pending: ${pendingEvents.size})")
+                }
             }
         }
 
         public fun sendEventCustom(event: String, body: Map<String, Any>) {
-            eventHandlers.reapCollection().forEach {
-                it.get()?.send(event, body)
+            val handlers = eventHandlers.reapCollection()
+            var eventSent = false
+
+            handlers.forEach {
+                val handler = it.get()
+                if (handler != null && handler.hasListener()) {
+                    handler.send(event, body)
+                    eventSent = true
+                }
+            }
+
+            // Se não conseguiu enviar para nenhum listener ativo, enfileira o evento
+            if (!eventSent) {
+                synchronized(pendingEventsLock) {
+                    if (pendingEvents.size >= MAX_PENDING_EVENTS) {
+                        pendingEvents.removeAt(0)
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    pendingEvents.add(Pair(event, body as Map<String, Any?>))
+                    Log.d(TAG, "Custom event queued: $event (total pending: ${pendingEvents.size})")
+                }
+            }
+        }
+
+        // Método para enviar eventos pendentes quando um novo listener é registrado
+        fun flushPendingEvents() {
+            synchronized(pendingEventsLock) {
+                if (pendingEvents.isEmpty()) return
+
+                val handlers = eventHandlers.reapCollection()
+                val activeHandlers = handlers.filter { it.get()?.hasListener() == true }
+
+                if (activeHandlers.isNotEmpty()) {
+                    Log.d(TAG, "Flushing ${pendingEvents.size} pending event(s)")
+                    pendingEvents.forEach { (event, body) ->
+                        activeHandlers.forEach { handlerRef ->
+                            handlerRef.get()?.send(event, body)
+                        }
+                    }
+                    pendingEvents.clear()
+                }
             }
         }
 
@@ -155,9 +221,8 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     }
 
     public fun sendEventCustom(body: Map<String, Any>) {
-        eventHandlers.reapCollection().forEach {
-            it.get()?.send(CallkitConstants.ACTION_CALL_CUSTOM, body)
-        }
+        // Usa o método do companion object que tem a lógica de enfileiramento
+        Companion.sendEventCustom(CallkitConstants.ACTION_CALL_CUSTOM, body)
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -383,6 +448,17 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
 
         override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
             eventSink = sink
+            Log.d(TAG, "EventCallbackHandler: listener registered")
+            // Quando um listener é registrado, envia eventos pendentes após um pequeno delay
+            // para garantir que o listener está completamente pronto
+            Handler(Looper.getMainLooper()).postDelayed({
+                flushPendingEvents()
+            }, 100)
+        }
+
+        // Verifica se há um listener ativo
+        fun hasListener(): Boolean {
+            return eventSink != null
         }
 
         fun send(event: String, body: Map<String, Any?>) {
@@ -396,6 +472,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
         }
 
         override fun onCancel(arguments: Any?) {
+            Log.d(TAG, "EventCallbackHandler: listener cancelled")
             eventSink = null
         }
     }
