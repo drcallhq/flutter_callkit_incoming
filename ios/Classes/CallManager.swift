@@ -14,7 +14,6 @@ class CallManager: NSObject {
     private let callController = CXCallController()
     private var sharedProvider: CXProvider? = nil
     private(set) var calls = [Call]()
-    var userDidExplicitlyAccept: Bool = false
     
     
     func setSharedProvider(_ sharedProvider: CXProvider) {
